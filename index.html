@@ -1,0 +1,1334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A simple study tracker. Set your class, subjects and chapters, then tick topics as you finish them.">
+<meta name="theme-color" content="#ECEBF0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Study Tracker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="config.js"></script>
+<title>Study Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: soft grey field with blurred colour behind frosted glass cards. First run shows a three step setup card (class, subjects, chapters). After setup: header and range pills, four stat cards, activity bars beside the subject donut, then the subject list beside the day log, then settings. One column on phones. */
+:root {
+  --bg: #ECEBF0;
+  --ink: #14141A;
+  --muted: #6B6B78;
+  --hair: rgba(20, 20, 30, .10);
+  --dark: #1D1D22;
+  --dark-sel: #9AA0AA;
+  --good: #1E7F4F;
+  --bad: #B3261E;
+  --font: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 14.5px/1.5 var(--font);
+  font-variant-numeric: tabular-nums;
+  padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 32% at 12% 8%, rgba(176, 166, 232, .55), transparent 70%),
+    radial-gradient(36% 30% at 92% 18%, rgba(244, 202, 178, .50), transparent 70%),
+    radial-gradient(42% 36% at 72% 96%, rgba(164, 220, 202, .50), transparent 70%),
+    var(--bg);
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+#app { display: flex; flex-direction: column; gap: 20px; }
+
+/* glass */
+.glass {
+  position: relative;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, .78);
+  background: linear-gradient(135deg, rgba(255, 255, 255, .74), rgba(255, 255, 255, .46));
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 -1px 0 rgba(255, 255, 255, .35), 0 12px 32px rgba(31, 35, 60, .09), 0 1px 2px rgba(31, 35, 60, .06);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(110% 70% at 0% 0%, rgba(255, 255, 255, .55), transparent 60%);
+}
+.glass > * { position: relative; }
+.glass.dark {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .16);
+  background: linear-gradient(145deg, rgba(40, 40, 48, .94), rgba(14, 14, 18, .90));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 14px 34px rgba(14, 14, 24, .28);
+}
+.glass.dark::before { background: radial-gradient(110% 80% at 0% 0%, rgba(255, 255, 255, .20), transparent 60%); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: rgba(255, 255, 255, .92); }
+}
+
+/* shared controls */
+.btn {
+  padding: 10px 20px; border-radius: 999px; font-weight: 600; font-size: .92rem;
+  border: 1px solid rgba(255, 255, 255, .9); background: rgba(255, 255, 255, .78);
+  box-shadow: 0 1px 2px rgba(31, 35, 60, .1), inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.btn.primary { background: var(--dark); color: #fff; border-color: var(--dark); }
+.btn.warn { color: var(--bad); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.small { padding: 6px 12px; font-size: .8rem; }
+.txt { flex: 1; min-width: 0; width: 100%; padding: 9px 14px; border-radius: 999px; border: 1px solid rgba(20, 20, 30, .16); background: rgba(255, 255, 255, .8); }
+.txt.big { padding: 12px 18px; font-size: 1rem; }
+.txt::placeholder, .ta::placeholder { color: var(--muted); }
+.ta { width: 100%; min-height: 104px; padding: 11px 15px; border-radius: 16px; border: 1px solid rgba(20, 20, 30, .16); background: rgba(255, 255, 255, .8); resize: vertical; line-height: 1.5; }
+.hint { margin: 0; font-size: .78rem; color: var(--muted); font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+
+/* setup */
+.wiz { max-width: 560px; width: 100%; margin: 4vh auto 0; padding: 28px 24px; }
+.wprog { display: flex; gap: 6px; margin-bottom: 20px; }
+.wd { flex: 1; height: 4px; border-radius: 999px; background: rgba(20, 20, 30, .12); }
+.wd.on { background: var(--dark); }
+.kicker { margin: 0 0 4px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.wtitle { margin: 0; font-size: 1.65rem; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; text-wrap: balance; }
+.wiz .sub { margin: 8px 0 18px; font-size: .9rem; color: var(--muted); }
+.chiprow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sugg { padding: 6px 13px; border-radius: 999px; font-size: .84rem; font-weight: 600; border: 1px solid rgba(255, 255, 255, .9); background: rgba(255, 255, 255, .78); box-shadow: 0 1px 2px rgba(31, 35, 60, .08); }
+.sugg:disabled { opacity: .35; cursor: default; }
+.pk { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 13px; border-radius: 999px; background: var(--dark); color: #fff; font-size: .85rem; font-weight: 600; max-width: 100%; overflow-wrap: anywhere; }
+.pk button { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .2); color: #fff; line-height: 1; }
+.wlabel { display: block; margin: 18px 0 8px; font-size: .8rem; font-weight: 700; }
+.addrow { display: flex; gap: 8px; }
+.fld { margin-top: 16px; }
+.flabel { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 6px; font-size: .88rem; font-weight: 700; }
+.flabel .nm { min-width: 0; overflow-wrap: anywhere; }
+.wnav { display: flex; justify-content: space-between; gap: 10px; margin-top: 24px; }
+.wnav .spacer { flex: 1; }
+
+/* header */
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; }
+h1.title { margin: 0; font-size: clamp(1.7rem, 6vw, 2.15rem); line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill {
+  padding: 7px 15px; border-radius: 999px; font-size: .85rem; font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, .85); background: rgba(255, 255, 255, .72);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: 0 1px 2px rgba(31, 35, 60, .08), inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.pill[aria-pressed="true"] { background: var(--dark); color: #fff; border-color: var(--dark); }
+.range { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; background: rgba(255, 255, 255, .72); border: 1px solid rgba(255, 255, 255, .85); }
+.range svg { width: 15px; height: 15px; flex: none; }
+
+/* layout */
+.grid { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "stats" "day" "subjects" "activity" "split"; }
+.a-stats { grid-area: stats; } .a-day { grid-area: day; } .a-subjects { grid-area: subjects; } .a-activity { grid-area: activity; } .a-split { grid-area: split; }
+@media (min-width: 880px) {
+  .grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-areas: "stats stats" "activity split" "subjects day"; }
+}
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 760px) { .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.stat { padding: 16px; min-width: 0; }
+.stat .l { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.stat.dark .l { color: rgba(255, 255, 255, .72); }
+.stat .v { margin-top: 8px; font-size: 1.85rem; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; }
+.stat .f { margin-top: 8px; display: flex; align-items: center; gap: 5px; font-size: .75rem; font-weight: 500; color: var(--muted); min-width: 0; }
+.stat.dark .f { color: rgba(255, 255, 255, .72); }
+.f .up { color: #6EE7A8; font-weight: 700; } .f .down { color: #FF9A9A; font-weight: 700; }
+.f svg { width: 12px; height: 12px; flex: none; }
+
+.card { padding: 20px; min-width: 0; }
+.card-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+h2 { margin: 0; font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+.sub { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
+.nav { display: flex; gap: 6px; flex: none; }
+.circ { width: 32px; height: 32px; padding: 0; border-radius: 50%; display: grid; place-items: center; border: 1px solid rgba(255, 255, 255, .85); background: rgba(255, 255, 255, .78); box-shadow: 0 1px 2px rgba(31, 35, 60, .1); font-size: 1rem; line-height: 1; }
+.circ:disabled { opacity: .35; cursor: default; }
+
+/* activity bars */
+.plot { position: relative; height: 196px; margin-top: 14px; }
+.gl { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--hair); }
+.gl span { position: absolute; left: 0; top: -9px; font-size: .7rem; color: var(--muted); }
+.gwrap { position: absolute; top: 20px; bottom: 28px; left: 0; right: 0; }
+.bars { position: absolute; top: 20px; bottom: 28px; left: 30px; right: 0; display: flex; gap: 10px; }
+.bcol { position: relative; flex: 1; min-width: 0; border: 0; background: none; padding: 0; }
+.bar { position: absolute; bottom: 0; left: 50%; width: min(100%, 38px); transform: translateX(-50%); border-radius: 12px; background: var(--dark); transition: height .3s ease, background .2s; }
+.bar.zero { height: 4px; background: rgba(20, 20, 30, .14); }
+.bcol[aria-pressed="true"] .bar { background: var(--dark-sel); }
+.val { position: absolute; left: 0; right: 0; text-align: center; font-size: .72rem; font-weight: 700; }
+.dl { position: absolute; left: 0; right: 0; bottom: -24px; text-align: center; font-size: .75rem; color: var(--muted); font-weight: 500; }
+.bcol[aria-pressed="true"] .dl { color: var(--ink); font-weight: 700; }
+
+/* donut */
+.donut-wrap { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: center; justify-content: center; }
+#donut { width: 180px; max-width: 100%; height: auto; flex: none; }
+.legend { list-style: none; margin: 0; padding: 0; flex: 1 1 170px; min-width: 0; display: grid; gap: 9px; }
+.legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: .85rem; }
+.legend .n { overflow-wrap: anywhere; font-weight: 500; }
+.legend .c { color: var(--muted); font-size: .8rem; font-weight: 600; }
+.ins { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ibox { padding: 11px 13px; border-radius: 14px; background: rgba(255, 255, 255, .6); border: 1px solid rgba(255, 255, 255, .85); min-width: 0; }
+.ibox .l { font-size: .72rem; font-weight: 600; color: var(--muted); }
+.ibox .t { margin-top: 2px; font-size: .88rem; font-weight: 700; overflow-wrap: anywhere; }
+
+/* day log */
+.empty { margin: 14px 0 0; color: var(--muted); font-size: .88rem; max-width: 38ch; }
+.grp { margin-top: 14px; }
+.glabel { display: flex; align-items: center; gap: 8px; font-size: .85rem; font-weight: 700; margin-bottom: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 5px 11px; border-radius: 10px; font-size: .82rem; line-height: 1.35; background: rgba(255, 255, 255, .72); border: 1px solid rgba(255, 255, 255, .9); box-shadow: 0 1px 2px rgba(31, 35, 60, .06); overflow-wrap: anywhere; min-width: 0; }
+
+/* subjects */
+.slist { margin-top: 12px; border-top: 1px solid var(--hair); }
+details.subj { border-bottom: 1px solid var(--hair); }
+details.subj:last-child { border-bottom: 0; }
+details.subj summary { list-style: none; cursor: pointer; padding: 14px 0; display: grid; gap: 10px; }
+details.subj summary::-webkit-details-marker, details.settings summary::-webkit-details-marker { display: none; }
+.r1 { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.name { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: .98rem; min-width: 0; overflow-wrap: anywhere; }
+.r1 .right { display: flex; align-items: center; gap: 10px; flex: none; }
+.chev { width: 7px; height: 7px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .2s; flex: none; }
+details[open] > summary .chev { transform: rotate(45deg); }
+.status { padding: 3px 10px; border-radius: 999px; font-size: .72rem; font-weight: 700; background: rgba(20, 20, 30, .07); color: #3A3A46; white-space: nowrap; }
+.status.s0 { background: transparent; border: 1px solid var(--hair); color: var(--muted); }
+.status.s2 { background: var(--dark); color: #fff; }
+.status.s3 { background: var(--good); color: #fff; }
+.r2 { display: flex; align-items: center; gap: 12px; }
+.track { flex: 1; min-width: 0; height: 8px; border-radius: 999px; background: rgba(20, 20, 30, .09); overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--c); transition: width .35s ease; }
+.cnt { font-size: .8rem; font-weight: 600; color: var(--muted); min-width: 4.8em; text-align: right; }
+.topics { list-style: none; margin: 0; padding: 0 0 6px; }
+.topics li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; border-top: 1px solid var(--hair); }
+.topics li:first-child { border-top: 0; }
+.none { margin: 0; padding: 4px 0 10px; font-size: .85rem; color: var(--muted); }
+.tk { display: flex; align-items: center; gap: 12px; padding: 10px 0; cursor: pointer; min-width: 0; }
+.tk input { appearance: none; -webkit-appearance: none; width: 20px; height: 20px; flex: none; margin: 0; border-radius: 6px; border: 1.5px solid #8C8C99; background: rgba(255, 255, 255, .8); cursor: pointer; }
+.tk input:checked { border-color: var(--dark); background: var(--dark) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 12.5l4.2 4.2 8.8-9.4'/%3E%3C/svg%3E") center / 80% no-repeat; }
+.ttext { min-width: 0; overflow-wrap: anywhere; }
+li.done .ttext { color: var(--muted); }
+.tdate { font-size: .72rem; color: var(--muted); white-space: nowrap; font-weight: 500; }
+.rm { border: 0; background: none; color: var(--muted); font-size: .78rem; padding: 8px 4px; min-width: 32px; }
+.addrow.pad { padding: 6px 0 14px; }
+
+/* settings */
+details.settings summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setbody { margin-top: 6px; }
+.setlist { display: grid; gap: 8px; margin-top: 4px; }
+.setrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.danger { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--hair); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.danger p { margin: 0; max-width: 40ch; }
+
+/* sign in */
+.btn.wide { width: 100%; }
+.stack { display: grid; gap: 10px; }
+.or { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--muted); font-size: .78rem; font-weight: 600; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
+.msg { margin: 12px 0 0; min-height: 1.3em; font-size: .85rem; font-weight: 600; color: var(--bad); overflow-wrap: anywhere; }
+.msg.ok { color: var(--good); }
+.linkrow { display: flex; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; margin-top: 12px; }
+.linkbtn { border: 0; background: none; padding: 4px 0; font-size: .84rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.acct { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.acct p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+.foot { margin: 0; text-align: center; font-size: .75rem; color: var(--muted); min-height: 1.2em; position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) { .bar, .track i, .chev { transition: none; } }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+</style>
+
+</head>
+<body>
+<main class="wrap">
+  <section id="auth" aria-live="polite" hidden></section>
+  <section id="setup" aria-live="polite" hidden></section>
+
+  <div id="app" hidden>
+    <header class="top">
+      <div>
+        <p class="kicker" id="kicker"></p>
+        <h1 class="title">Study dashboard</h1>
+      </div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Time range">
+          <button class="pill" type="button" id="p-day" aria-pressed="false">Today</button>
+          <button class="pill" type="button" id="p-week" aria-pressed="false">7 days</button>
+          <button class="pill" type="button" id="p-month" aria-pressed="false">30 days</button>
+          <button class="pill" type="button" id="p-all" aria-pressed="true">All time</button>
+        </div>
+        <span class="range"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span id="range-text"></span></span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="stats a-stats" aria-label="Summary">
+        <div class="glass dark stat"><div class="l">Topics completed</div><div class="v" id="v1"></div><div class="f" id="f1"></div></div>
+        <div class="glass stat"><div class="l">Syllabus covered</div><div class="v" id="v2"></div><div class="f" id="f2"></div></div>
+        <div class="glass stat"><div class="l">Subjects studied</div><div class="v" id="v3"></div><div class="f" id="f3"></div></div>
+        <div class="glass stat"><div class="l">Day streak</div><div class="v" id="v4"></div><div class="f" id="f4"></div></div>
+      </section>
+
+      <section class="glass card a-activity" aria-labelledby="act-title">
+        <div class="card-h"><div><h2 id="act-title">Study activity</h2><p class="sub">Topics completed per day, last 7 days. Select a day to view it or tick topics for it.</p></div></div>
+        <div class="plot" id="plot"></div>
+      </section>
+
+      <section class="glass card a-split" aria-labelledby="split-title">
+        <div class="card-h"><div><h2 id="split-title">Subject split</h2><p class="sub" id="split-sub"></p></div></div>
+        <div class="donut-wrap">
+          <svg id="donut" viewBox="0 0 200 200" role="img" aria-label="Donut chart of topics studied per subject"></svg>
+          <ul class="legend" id="legend"></ul>
+        </div>
+        <div class="ins">
+          <div class="ibox"><div class="l">Most studied</div><div class="t" id="most"></div></div>
+          <div class="ibox"><div class="l">Least studied</div><div class="t" id="least"></div></div>
+        </div>
+      </section>
+
+      <section class="glass card a-subjects" aria-labelledby="subj-title">
+        <div class="card-h"><div><h2 id="subj-title">Subjects</h2><p class="sub" id="marknote"></p></div></div>
+        <div class="slist" id="subjects"></div>
+      </section>
+
+      <section class="glass card a-day" aria-labelledby="day-title">
+        <div class="card-h">
+          <div><h2 id="day-title">Studied today</h2><p class="sub" id="day-sub"></p></div>
+          <div class="nav">
+            <button class="circ" id="prevday" type="button" aria-label="Previous day">‹</button>
+            <button class="circ" id="nextday" type="button" aria-label="Next day">›</button>
+          </div>
+        </div>
+        <div id="today" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <details class="glass card settings">
+      <summary><h2>Settings</h2><span class="chev"></span></summary>
+      <div class="setbody" id="settings"></div>
+    </details>
+  </div>
+
+  <p class="foot" id="status" role="status"></p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var LS = "study-tracker-v3";
+  var LS_OLD = "board-prep-study-log-v2";
+  var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var PALETTE = ["#B58CA8", "#2B2D42", "#6C7A9C", "#8FB3A5", "#D9B98B", "#C98B7B", "#7BA3C9", "#A3B18A", "#C7A6D9", "#E0A96D", "#6FA8A0", "#9A9A9A"];
+  var OLD_COLORS = { eng: "#B58CA8", acc: "#2B2D42", bst: "#6C7A9C", eco: "#8FB3A5", ip: "#D9B98B" };
+  var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  var MAX_SUBJECTS = 12, MAX_TOPICS = 120;
+  var CLASS_CHIPS = ["Class 9", "Class 10", "Class 11", "Class 12", "College"];
+  var SUGG = ["English", "Hindi", "Mathematics", "Physics", "Chemistry", "Biology", "Computer Science", "Accountancy", "Business Studies", "Economics", "History", "Geography", "Political Science", "Informatics Practices", "Physical Education"];
+
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function key(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function parse(k) { var p = k.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function addDays(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+  function sum(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
+  function shortDate(k) { var d = parse(k); return d.getDate() + " " + MON[d.getMonth()]; }
+  function longDate(k) { var d = parse(k); return d.getDate() + " " + MON[d.getMonth()] + " " + d.getFullYear(); }
+  function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  var NS = "http://www.w3.org/2000/svg";
+  function sv(tag, attrs) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function el(tag, props, kids) {
+    var n = document.createElement(tag);
+    if (props) for (var k in props) {
+      var v = props[k];
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k === "value") n.value = v;
+      else if (k === "checked") n.checked = !!v;
+      else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), v);
+      else if (v === true) n.setAttribute(k, "");
+      else if (v !== false && v != null) n.setAttribute(k, v);
+    }
+    (kids || []).forEach(function (c) {
+      if (c == null) return;
+      n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return n;
+  }
+  function armed(btn, label, armLabel, action) {
+    btn.addEventListener("click", function () {
+      if (btn.getAttribute("data-armed") !== "1") {
+        btn.setAttribute("data-armed", "1");
+        btn.textContent = armLabel;
+        setTimeout(function () { btn.removeAttribute("data-armed"); btn.textContent = label; }, 3000);
+        return;
+      }
+      action();
+    });
+  }
+
+  var today = new Date();
+  var todayKey = key(today);
+  var markDate = todayKey;
+  var period = "all";
+  var openSet = {};
+  var refs = {};
+
+  /* ---------- data ---------- */
+  function blank() { return { v: 3, done: false, cls: "", subjects: [] }; }
+
+  function sanitize(o) {
+    if (!o || typeof o !== "object" || !Array.isArray(o.subjects) || (o.v !== 2 && o.v !== 3)) return blank();
+    var out = { v: 3, done: o.v === 2 ? true : !!o.done, cls: typeof o.cls === "string" ? o.cls.slice(0, 30) : "", subjects: [] };
+    if (o.v === 2 && !out.cls) out.cls = "Class 12";
+    o.subjects.slice(0, MAX_SUBJECTS).forEach(function (s, i) {
+      if (!s || typeof s.id !== "string" || typeof s.name !== "string" || !Array.isArray(s.topics)) return;
+      var topics = [];
+      s.topics.slice(0, MAX_TOPICS).forEach(function (t) {
+        if (t && typeof t.id === "string" && typeof t.t === "string") {
+          topics.push({ id: t.id.slice(0, 40), t: t.t.slice(0, 80), d: (typeof t.d === "string" && DATE_RE.test(t.d)) ? t.d : "" });
+        }
+      });
+      var id = s.id.slice(0, 24);
+      var color = (typeof s.color === "string" && /^#[0-9a-fA-F]{6}$/.test(s.color)) ? s.color : (OLD_COLORS[id] || PALETTE[i % PALETTE.length]);
+      out.subjects.push({ id: id, name: s.name.slice(0, 30), color: color, topics: topics });
+    });
+    if (!out.subjects.length) out.done = false;
+    return out;
+  }
+
+  var state = blank();
+  var lsOk = true;
+  try {
+    var raw = localStorage.getItem(LS) || localStorage.getItem(LS_OLD);
+    if (raw) { try { state = sanitize(JSON.parse(raw)); } catch (e) { state = blank(); } }
+  } catch (e) { lsOk = false; }
+
+  /* ---------- saving ---------- */
+  var LS_PENDING = "study-tracker-pending";
+  var LS_SIGNED = "study-tracker-signedin";
+  var LS_GUEST = "study-tracker-guest";
+  var remote = null;        // { save(obj) } when signed in, or on a host that provides storage
+  var remoteKind = "";      // "supabase" or "host"
+  var syncFailed = false;
+  var dirty = false, saving = false, timer = null, loadTimer = null;
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+  function setStatus(m) { $("status").textContent = m; }
+  function whereSaved() {
+    if (remote && syncFailed) return "Saved on this device. Couldn't reach your account, will retry.";
+    if (remote) return "Saved to your account";
+    return lsOk ? "Saved on this device only" : "Changes last only while this page is open";
+  }
+  function changed() {
+    dirty = true;
+    setStatus("Saving…");
+    clearTimeout(timer);
+    timer = setTimeout(flush, 700);
+  }
+  async function flush() {
+    if (saving) return;
+    saving = true;
+    var snap = JSON.stringify(state);
+    try { localStorage.setItem(LS, snap); lsOk = true; } catch (e) { lsOk = false; }
+    if (remote) {
+      try { await remote.save(JSON.parse(snap)); syncFailed = false; lsSet(LS_PENDING, null); }
+      catch (e) {
+        if (remoteKind === "host") remote = null;
+        else { syncFailed = true; lsSet(LS_PENDING, "1"); }
+      }
+    } else if (lsGet(LS_SIGNED)) {
+      lsSet(LS_PENDING, "1");
+    }
+    saving = false;
+    if (JSON.stringify(state) !== snap) { flush(); return; }
+    dirty = false;
+    setStatus(whereSaved());
+  }
+  window.addEventListener("online", function () { if (remote && syncFailed && !saving) { dirty = true; flush(); } });
+
+  /* ---------- setup wizard ---------- */
+  var draft = { cls: "", subs: [] };
+  var step = 1;
+  var wizardTouched = false;
+
+  function parseTopics(text) {
+    var seen = {}, out = [];
+    String(text || "").split(/\r?\n/).forEach(function (line) {
+      var t = line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim().slice(0, 80);
+      var k = t.toLowerCase();
+      if (t && !seen[k]) { seen[k] = 1; out.push(t); }
+    });
+    return out;
+  }
+
+  function goStep(n) { step = n; renderWizard(); window.scrollTo(0, 0); }
+
+  function renderWizard() {
+    var box = $("setup");
+    box.textContent = "";
+    var card = el("div", { class: "glass card wiz" });
+    var prog = el("div", { class: "wprog", role: "img", "aria-label": "Step " + step + " of 3" });
+    for (var i = 1; i <= 3; i++) prog.appendChild(el("span", { class: "wd" + (i <= step ? " on" : "") }));
+    card.appendChild(prog);
+    if (step === 1) wizClass(card);
+    else if (step === 2) wizSubjects(card);
+    else wizChapters(card);
+    box.appendChild(card);
+  }
+
+  function wizClass(card) {
+    card.appendChild(el("p", { class: "kicker", text: "Step 1 of 3" }));
+    card.appendChild(el("h1", { class: "wtitle", text: "Which class are you in?" }));
+    card.appendChild(el("p", { class: "sub", text: "This sets up your own tracker. You can change it any time in Settings." }));
+    var inp = el("input", { class: "txt big", type: "text", id: "cls-in", maxlength: "30", placeholder: "e.g. Class 12, Grade 10, B.Com Year 1", value: draft.cls, "aria-label": "Your class or course" });
+    var next = el("button", { type: "button", class: "btn primary", text: "Continue" });
+    next.disabled = !draft.cls.trim();
+    inp.addEventListener("input", function () { draft.cls = inp.value; wizardTouched = true; next.disabled = !inp.value.trim(); });
+    inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !next.disabled) { ev.preventDefault(); goStep(2); } });
+    next.addEventListener("click", function () { draft.cls = draft.cls.trim(); goStep(2); });
+    card.appendChild(inp);
+    var chips = el("div", { class: "chiprow" });
+    CLASS_CHIPS.forEach(function (c) {
+      chips.appendChild(el("button", {
+        type: "button", class: "sugg", text: c,
+        onclick: function () { inp.value = c; draft.cls = c; wizardTouched = true; next.disabled = false; }
+      }));
+    });
+    card.appendChild(chips);
+    card.appendChild(el("div", { class: "wnav" }, [el("span", { class: "spacer" }), next]));
+  }
+
+  function wizSubjects(card) {
+    card.appendChild(el("p", { class: "kicker", text: "Step 2 of 3" }));
+    card.appendChild(el("h1", { class: "wtitle", text: "Add your subjects" }));
+    card.appendChild(el("p", { class: "sub", text: "Tap a suggestion or type your own. You can add up to " + MAX_SUBJECTS + "." }));
+    var inp = el("input", { class: "txt big", type: "text", id: "sub-in", maxlength: "30", placeholder: "Type a subject name", "aria-label": "Subject name" });
+    var addBtn = el("button", { type: "button", class: "btn", text: "Add" });
+    card.appendChild(el("div", { class: "addrow" }, [inp, addBtn]));
+    card.appendChild(el("span", { class: "wlabel", text: "Suggestions" }));
+    var sg = el("div", { class: "chiprow", style: "margin-top:0" });
+    card.appendChild(sg);
+    var pkLabel = el("span", { class: "wlabel" });
+    card.appendChild(pkLabel);
+    var pk = el("div", { class: "chiprow", style: "margin-top:0", "aria-live": "polite" });
+    card.appendChild(pk);
+    var back = el("button", { type: "button", class: "btn", text: "Back", onclick: function () { goStep(1); } });
+    var next = el("button", { type: "button", class: "btn primary", text: "Continue", onclick: function () { goStep(3); } });
+    card.appendChild(el("div", { class: "wnav" }, [back, next]));
+
+    function has(n) { return draft.subs.some(function (s) { return s.name.toLowerCase() === n.toLowerCase(); }); }
+    function add(raw) {
+      var n = String(raw || "").trim().slice(0, 30);
+      if (!n || has(n) || draft.subs.length >= MAX_SUBJECTS) return;
+      draft.subs.push({ name: n, text: "" });
+      wizardTouched = true;
+      inp.value = "";
+      paint();
+    }
+    function paint() {
+      sg.textContent = "";
+      SUGG.forEach(function (n) {
+        var b = el("button", { type: "button", class: "sugg", text: n });
+        b.disabled = has(n) || draft.subs.length >= MAX_SUBJECTS;
+        b.addEventListener("click", function () { add(n); });
+        sg.appendChild(b);
+      });
+      pk.textContent = "";
+      draft.subs.forEach(function (s, i) {
+        var x = el("button", { type: "button", "aria-label": "Remove " + s.name, text: "×" });
+        x.addEventListener("click", function () { draft.subs.splice(i, 1); paint(); });
+        pk.appendChild(el("span", { class: "pk" }, [s.name, x]));
+      });
+      pkLabel.textContent = draft.subs.length ? "Your subjects (" + draft.subs.length + ")" : "No subjects yet";
+      next.disabled = !draft.subs.length;
+      addBtn.disabled = draft.subs.length >= MAX_SUBJECTS;
+    }
+    addBtn.addEventListener("click", function () { add(inp.value); });
+    inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); add(inp.value); } });
+    paint();
+  }
+
+  function wizChapters(card) {
+    card.appendChild(el("p", { class: "kicker", text: "Step 3 of 3" }));
+    card.appendChild(el("h1", { class: "wtitle", text: "Add chapters for each subject" }));
+    card.appendChild(el("p", { class: "sub", text: "Type or paste one chapter per line. You can skip any subject and add its chapters later." }));
+    draft.subs.forEach(function (s, i) {
+      var cnt = el("span", { class: "hint" });
+      var ta = el("textarea", { class: "ta", id: "ta-" + i, rows: "4", placeholder: "Chapter 1\nChapter 2\nChapter 3", "aria-label": "Chapters for " + s.name });
+      ta.value = s.text;
+      function upd() {
+        var n = parseTopics(s.text).length;
+        cnt.textContent = n + (n === 1 ? " chapter" : " chapters") + (n > MAX_TOPICS ? " (first " + MAX_TOPICS + " are used)" : "");
+      }
+      ta.addEventListener("input", function () { s.text = ta.value; upd(); });
+      upd();
+      card.appendChild(el("div", { class: "fld" }, [
+        el("label", { class: "flabel", for: "ta-" + i }, [el("span", { class: "nm", text: s.name }), cnt]),
+        ta
+      ]));
+    });
+    var back = el("button", { type: "button", class: "btn", text: "Back", onclick: function () { goStep(2); } });
+    var go = el("button", { type: "button", class: "btn primary", text: "Start tracking", onclick: finishSetup });
+    card.appendChild(el("div", { class: "wnav" }, [back, go]));
+  }
+
+  function finishSetup() {
+    state = {
+      v: 3, done: true, cls: draft.cls.trim().slice(0, 30),
+      subjects: draft.subs.slice(0, MAX_SUBJECTS).map(function (s, i) {
+        return {
+          id: uid("s"), name: s.name, color: PALETTE[i % PALETTE.length],
+          topics: parseTopics(s.text).slice(0, MAX_TOPICS).map(function (t) { return { id: uid("t"), t: t, d: "" }; })
+        };
+      })
+    };
+    wizardTouched = false;
+    openSet = {};
+    markDate = todayKey;
+    changed();
+    route();
+    window.scrollTo(0, 0);
+  }
+
+  function route() {
+    var done = state.done;
+    $("auth").hidden = true;
+    $("setup").hidden = done;
+    $("app").hidden = !done;
+    if (done) { renderSubjects(); refreshAll(); renderSettings(); }
+    else renderWizard();
+  }
+
+  /* ---------- numbers ---------- */
+  function doneCount(s) { return s.topics.filter(function (t) { return t.d; }).length; }
+  function countBetween(from, to, subj) {
+    var list = subj ? [subj] : state.subjects;
+    return sum(list.map(function (s) {
+      return s.topics.filter(function (t) { return t.d && (!from || t.d >= from) && t.d <= to; }).length;
+    }));
+  }
+  function rangeFor(p) {
+    var t = todayKey;
+    if (p === "day") return { from: t, to: t, pFrom: key(addDays(today, -1)), pTo: key(addDays(today, -1)), label: "today", prev: "yesterday" };
+    if (p === "week") return { from: key(addDays(today, -6)), to: t, pFrom: key(addDays(today, -13)), pTo: key(addDays(today, -7)), label: "in the last 7 days", prev: "the previous 7 days" };
+    if (p === "month") return { from: key(addDays(today, -29)), to: t, pFrom: key(addDays(today, -59)), pTo: key(addDays(today, -30)), label: "in the last 30 days", prev: "the previous 30 days" };
+    return { from: "", to: t, pFrom: null, pTo: null, label: "overall", prev: "" };
+  }
+  function streakInfo() {
+    var set = {}, last = "";
+    state.subjects.forEach(function (s) { s.topics.forEach(function (t) { if (t.d) { set[t.d] = 1; if (t.d > last) last = t.d; } }); });
+    var k = todayKey;
+    if (!set[k]) k = key(addDays(today, -1));
+    var n = 0;
+    while (set[k]) { n++; k = key(addDays(parse(k), -1)); }
+    return { n: n, last: last };
+  }
+  function dayLabel(k) {
+    if (k === todayKey) return "today";
+    if (k === key(addDays(today, -1))) return "yesterday";
+    var d = parse(k);
+    return "on " + DAYS[(d.getDay() + 6) % 7] + " " + d.getDate() + " " + MON[d.getMonth()];
+  }
+
+  /* ---------- header and stats ---------- */
+  function renderHeader() {
+    $("kicker").textContent = (state.cls ? state.cls + " · " : "") + "Study tracker";
+  }
+  function arrow(up) {
+    var s = sv("svg", { viewBox: "0 0 12 12", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" });
+    s.appendChild(sv("path", { d: up ? "M2 8l4-4 4 4" : "M2 4l4 4 4-4" }));
+    return s;
+  }
+  function renderStats() {
+    var r = rangeFor(period);
+    var cur = countBetween(r.from, r.to);
+    var allDone = sum(state.subjects.map(doneCount));
+    var allTotal = sum(state.subjects.map(function (s) { return s.topics.length; }));
+    var pct = allTotal ? Math.round(allDone / allTotal * 100) : 0;
+    $("v1").textContent = String(cur);
+    var f1 = $("f1");
+    f1.textContent = "";
+    if (r.pFrom) {
+      var delta = cur - countBetween(r.pFrom, r.pTo);
+      if (delta === 0) f1.appendChild(el("span", { text: "No change vs " + r.prev }));
+      else {
+        f1.appendChild(el("span", { class: delta > 0 ? "up" : "down", style: "display:inline-flex;align-items:center;gap:3px" }, [arrow(delta > 0), (delta > 0 ? "+" : "−") + Math.abs(delta)]));
+        f1.appendChild(el("span", { text: "vs " + r.prev }));
+      }
+    } else {
+      f1.appendChild(el("span", { text: pct + "% of the syllabus" }));
+    }
+    $("v2").textContent = pct + "%";
+    $("f2").textContent = allDone + " of " + allTotal + " topics";
+    var touched = state.subjects.filter(function (s) { return countBetween(r.from, r.to, s) > 0; }).length;
+    $("v3").textContent = touched + " / " + state.subjects.length;
+    $("f3").textContent = r.label === "overall" ? "Across all time" : "Studied " + r.label;
+    var st = streakInfo();
+    $("v4").textContent = st.n + (st.n === 1 ? " day" : " days");
+    $("f4").textContent = st.last ? "Last studied " + shortDate(st.last) : "No topics ticked yet";
+  }
+  function renderRange() {
+    var t;
+    if (period === "day") t = longDate(todayKey);
+    else if (period === "all") t = "All time";
+    else { var r = rangeFor(period); t = shortDate(r.from) + " – " + longDate(r.to); }
+    $("range-text").textContent = t;
+    $("split-sub").textContent = period === "all" ? "Share of topics completed, all time" : "Share of topics completed " + rangeFor(period).label;
+  }
+
+  /* ---------- activity bars ---------- */
+  function renderActivity() {
+    var box = $("plot");
+    box.textContent = "";
+    var days = [];
+    for (var i = 6; i >= 0; i--) {
+      var d = addDays(today, -i), k = key(d);
+      days.push({ k: k, d: d, n: countBetween(k, k) });
+    }
+    var mx = Math.max.apply(null, days.map(function (x) { return x.n; }));
+    var scale = Math.max(4, Math.ceil(mx / 2) * 2);
+    var gw = el("div", { class: "gwrap", "aria-hidden": "true" });
+    [scale, scale / 2, 0].forEach(function (v) {
+      var line = el("div", { class: "gl" }, [el("span", { text: String(v) })]);
+      line.style.top = ((1 - v / scale) * 100) + "%";
+      gw.appendChild(line);
+    });
+    box.appendChild(gw);
+    var bars = el("div", { class: "bars" });
+    days.forEach(function (x) {
+      var wd = (x.d.getDay() + 6) % 7;
+      var pct = x.n / scale * 100;
+      var bar = el("div", { class: "bar" + (x.n ? "" : " zero") });
+      if (x.n) bar.style.height = pct + "%";
+      var col = el("button", {
+        type: "button", class: "bcol", "aria-pressed": x.k === markDate ? "true" : "false",
+        "aria-label": DAYS[wd] + " " + x.d.getDate() + " " + MON[x.d.getMonth()] + ": " + x.n + (x.n === 1 ? " topic" : " topics"),
+        onclick: function () { markDate = x.k; renderActivity(); renderToday(); }
+      }, [bar]);
+      if (x.n) {
+        var v = el("span", { class: "val", text: String(x.n) });
+        v.style.bottom = "calc(" + pct + "% + 4px)";
+        col.appendChild(v);
+      }
+      col.appendChild(el("span", { class: "dl", text: x.k === todayKey ? "Today" : DAYS[wd] }));
+      bars.appendChild(col);
+    });
+    box.appendChild(bars);
+  }
+
+  /* ---------- donut ---------- */
+  function renderSplit() {
+    var r = rangeFor(period);
+    var cs = state.subjects.map(function (s) { return { s: s, n: countBetween(r.from, r.to, s) }; });
+    var tot = sum(cs.map(function (c) { return c.n; }));
+    var svg = $("donut");
+    svg.textContent = "";
+    var cx = 100, cy = 100, rad = 74, sw = 26, C = 2 * Math.PI * rad;
+    if (!tot) {
+      svg.appendChild(sv("circle", { cx: cx, cy: cy, r: rad, fill: "none", stroke: "rgba(20,20,30,.10)", "stroke-width": sw }));
+    } else {
+      var live = cs.filter(function (c) { return c.n > 0; });
+      var off = 0;
+      live.forEach(function (c) {
+        var arc = c.n / tot * C;
+        var gap = live.length > 1 ? Math.min(3, arc * 0.4) : 0;
+        var node = sv("circle", {
+          cx: cx, cy: cy, r: rad, fill: "none", stroke: c.s.color, "stroke-width": sw,
+          "stroke-dasharray": (arc - gap).toFixed(2) + " " + (C - arc + gap).toFixed(2),
+          "stroke-dashoffset": (-off).toFixed(2),
+          transform: "rotate(-90 " + cx + " " + cy + ")"
+        });
+        var ti = sv("title", {});
+        ti.textContent = c.s.name + ": " + c.n + (c.n === 1 ? " topic" : " topics");
+        node.appendChild(ti);
+        svg.appendChild(node);
+        off += arc;
+      });
+    }
+    var big = sv("text", { x: cx, y: cy + 4, "text-anchor": "middle", "font-size": "30", "font-weight": "700", fill: "#14141A", "font-family": "Manrope, system-ui, sans-serif" });
+    big.textContent = String(tot);
+    var small = sv("text", { x: cx, y: cy + 24, "text-anchor": "middle", "font-size": "11", "font-weight": "600", fill: "#6B6B78", "font-family": "Manrope, system-ui, sans-serif" });
+    small.textContent = tot === 1 ? "topic" : "topics";
+    svg.appendChild(big);
+    svg.appendChild(small);
+
+    var lg = $("legend");
+    lg.textContent = "";
+    cs.forEach(function (c) {
+      var dot = el("span", { class: "dot" });
+      dot.style.setProperty("--c", c.s.color);
+      lg.appendChild(el("li", null, [
+        dot,
+        el("span", { class: "n", text: c.s.name }),
+        el("span", { class: "c", text: c.n + (tot ? " · " + Math.round(c.n / tot * 100) + "%" : "") })
+      ]));
+    });
+
+    function names(v) { return cs.filter(function (c) { return c.n === v; }).map(function (c) { return c.s.name; }).join(", "); }
+    if (!tot || !cs.length) { $("most").textContent = "–"; $("least").textContent = "–"; return; }
+    var max = Math.max.apply(null, cs.map(function (c) { return c.n; }));
+    var min = Math.min.apply(null, cs.map(function (c) { return c.n; }));
+    if (max === min) { $("most").textContent = "Even split"; $("least").textContent = "Even split"; return; }
+    $("most").textContent = names(max);
+    $("least").textContent = names(min);
+  }
+
+  /* ---------- day log ---------- */
+  function renderToday() {
+    var box = $("today");
+    box.textContent = "";
+    $("day-title").textContent = "Studied " + dayLabel(markDate);
+    $("nextday").disabled = markDate === todayKey;
+    $("marknote").textContent = "Ticks are saved for " + (markDate === todayKey ? "today" : dayLabel(markDate).replace(/^on /, "")) + ". Open a subject to tick the topics you finish.";
+    var groups = state.subjects.map(function (s) {
+      return { s: s, ts: s.topics.filter(function (t) { return t.d === markDate; }) };
+    }).filter(function (g) { return g.ts.length; });
+    if (!groups.length) {
+      $("day-sub").textContent = "No topics ticked";
+      box.appendChild(el("p", { class: "empty", text: markDate === todayKey ? "Nothing ticked yet. Open a subject and tick each topic you finish." : "No topics were ticked on this day." }));
+      return;
+    }
+    var total = sum(groups.map(function (g) { return g.ts.length; }));
+    $("day-sub").textContent = total + (total === 1 ? " topic" : " topics") + " across " + groups.length + (groups.length === 1 ? " subject" : " subjects");
+    groups.forEach(function (g) {
+      var dot = el("span", { class: "dot" });
+      dot.style.setProperty("--c", g.s.color);
+      box.appendChild(el("div", { class: "grp" }, [
+        el("div", { class: "glabel" }, [dot, g.s.name]),
+        el("div", { class: "chips" }, g.ts.map(function (t) { return el("span", { class: "chip", text: t.t }); }))
+      ]));
+    });
+  }
+
+  /* ---------- subjects ---------- */
+  function statusFor(pct, total) {
+    if (!total) return { c: "s0", t: "No topics" };
+    if (pct === 0) return { c: "s0", t: "Not started" };
+    if (pct < 50) return { c: "s1", t: "In progress" };
+    if (pct < 100) return { c: "s2", t: "Over half" };
+    return { c: "s3", t: "Complete" };
+  }
+  function updateBars() {
+    state.subjects.forEach(function (s) {
+      var r = refs[s.id];
+      if (!r) return;
+      var d = doneCount(s), n = s.topics.length;
+      var pct = n ? Math.round(d / n * 100) : 0;
+      r.fill.style.width = pct + "%";
+      r.bar.setAttribute("aria-valuenow", String(pct));
+      r.cnt.textContent = d + " / " + n;
+      var st = statusFor(pct, n);
+      r.pill.className = "status " + st.c;
+      r.pill.textContent = st.t;
+    });
+  }
+  function refreshAll() {
+    renderHeader(); renderStats(); renderRange(); renderActivity(); renderToday(); updateBars(); renderSplit();
+  }
+  function renderSubjects() {
+    var box = $("subjects");
+    box.textContent = "";
+    refs = {};
+    state.subjects.forEach(function (s) {
+      var fill = el("i");
+      var bar = el("div", { class: "track", role: "progressbar", "aria-label": s.name + " progress", "aria-valuemin": "0", "aria-valuemax": "100" }, [fill]);
+      var cnt = el("span", { class: "cnt" });
+      var pill = el("span", { class: "status s0" });
+      refs[s.id] = { fill: fill, bar: bar, cnt: cnt, pill: pill };
+      var dot = el("span", { class: "dot" });
+      dot.style.setProperty("--c", s.color);
+      var det = el("details", { class: "subj" });
+      det.style.setProperty("--c", s.color);
+      if (openSet[s.id]) det.open = true;
+      det.addEventListener("toggle", function () { openSet[s.id] = det.open; });
+      det.appendChild(el("summary", null, [
+        el("div", { class: "r1" }, [
+          el("span", { class: "name" }, [dot, s.name]),
+          el("span", { class: "right" }, [pill, el("span", { class: "chev" })])
+        ]),
+        el("div", { class: "r2" }, [bar, cnt])
+      ]));
+      if (!s.topics.length) det.appendChild(el("p", { class: "none", text: "No topics yet. Add your first one below." }));
+      var ul = el("ul", { class: "topics" });
+      s.topics.forEach(function (t) {
+        var li = el("li", { class: t.d ? "done" : "" });
+        var dt = el("span", { class: "tdate", text: t.d ? shortDate(t.d) : "" });
+        var cb = el("input", { type: "checkbox", id: "tk-" + t.id, checked: !!t.d });
+        cb.addEventListener("change", function () {
+          t.d = cb.checked ? markDate : "";
+          dt.textContent = t.d ? shortDate(t.d) : "";
+          li.classList.toggle("done", !!t.d);
+          changed();
+          refreshAll();
+        });
+        var rm = el("button", { type: "button", class: "rm", text: "×", "aria-label": "Remove " + t.t });
+        armed(rm, "×", "sure?", function () {
+          s.topics = s.topics.filter(function (x) { return x.id !== t.id; });
+          openSet[s.id] = true;
+          changed(); renderSubjects(); refreshAll();
+        });
+        li.appendChild(el("label", { class: "tk", for: "tk-" + t.id }, [cb, el("span", { class: "ttext", text: t.t })]));
+        li.appendChild(dt);
+        li.appendChild(rm);
+        ul.appendChild(li);
+      });
+      det.appendChild(ul);
+      var inp = el("input", { class: "txt", type: "text", id: "add-" + s.id, maxlength: "80", placeholder: "Add a topic", "aria-label": "Add a topic to " + s.name });
+      function add() {
+        var v = inp.value.trim();
+        if (!v || s.topics.length >= MAX_TOPICS) return;
+        s.topics.push({ id: uid("t"), t: v.slice(0, 80), d: "" });
+        openSet[s.id] = true;
+        changed(); renderSubjects(); refreshAll();
+      }
+      inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); add(); } });
+      det.appendChild(el("div", { class: "addrow pad" }, [inp, el("button", { type: "button", class: "pill", text: "Add", onclick: add })]));
+      box.appendChild(det);
+    });
+  }
+
+  /* ---------- settings ---------- */
+  function pickColor() {
+    var used = {};
+    state.subjects.forEach(function (s) { used[s.color] = 1; });
+    for (var i = 0; i < PALETTE.length; i++) if (!used[PALETTE[i]]) return PALETTE[i];
+    return PALETTE[state.subjects.length % PALETTE.length];
+  }
+  function renderSettings() {
+    var box = $("settings");
+    box.textContent = "";
+    if (sb) {
+      box.appendChild(el("span", { class: "wlabel", text: "Account" }));
+      var acct = el("div", { class: "acct" });
+      if (activeUid) {
+        acct.appendChild(el("p", { class: "hint", text: "Signed in as " + (activeEmail || "your account") + ". Your progress is saved to your account." }));
+        var out = el("button", { type: "button", class: "btn small", text: "Sign out" });
+        out.addEventListener("click", function () {
+          var risky = syncFailed || lsGet(LS_PENDING) === "1";
+          if (risky && out.getAttribute("data-armed") !== "1") {
+            out.setAttribute("data-armed", "1");
+            out.textContent = "Unsynced changes will be lost. Tap again";
+            setTimeout(function () { out.removeAttribute("data-armed"); out.textContent = "Sign out"; }, 4000);
+            return;
+          }
+          out.disabled = true;
+          signOut();
+        });
+        acct.appendChild(out);
+      } else {
+        acct.appendChild(el("p", { class: "hint", text: "Not signed in. Your progress is saved on this device only." }));
+        acct.appendChild(el("button", { type: "button", class: "btn small", text: "Sign in to sync", onclick: function () { showAuth(); window.scrollTo(0, 0); } }));
+      }
+      box.appendChild(acct);
+    }
+    var cls = el("input", { class: "txt", type: "text", id: "set-cls", maxlength: "30", value: state.cls, placeholder: "e.g. Class 12", "aria-label": "Class or course" });
+    cls.addEventListener("input", function () { state.cls = cls.value.slice(0, 30); changed(); renderHeader(); });
+    box.appendChild(el("label", { class: "wlabel", for: "set-cls", text: "Class or course" }));
+    box.appendChild(cls);
+
+    box.appendChild(el("span", { class: "wlabel", text: "Subjects" }));
+    var list = el("div", { class: "setlist" });
+    state.subjects.forEach(function (s) {
+      var dot = el("span", { class: "dot" });
+      dot.style.setProperty("--c", s.color);
+      var nm = el("input", { class: "txt", type: "text", id: "set-" + s.id, maxlength: "30", value: s.name, "aria-label": "Subject name" });
+      nm.addEventListener("input", function () {
+        s.name = nm.value.trim() ? nm.value.slice(0, 30) : "Subject";
+        changed(); renderSubjects(); refreshAll();
+      });
+      var rm = el("button", { type: "button", class: "btn small", text: "Remove", "aria-label": "Remove " + s.name });
+      if (state.subjects.length <= 1) rm.disabled = true;
+      armed(rm, "Remove", "Sure?", function () {
+        if (state.subjects.length <= 1) return;
+        state.subjects = state.subjects.filter(function (x) { return x.id !== s.id; });
+        delete openSet[s.id];
+        changed(); renderSubjects(); refreshAll(); renderSettings();
+      });
+      list.appendChild(el("div", { class: "setrow" }, [dot, nm, rm]));
+    });
+    box.appendChild(list);
+
+    if (state.subjects.length < MAX_SUBJECTS) {
+      var ni = el("input", { class: "txt", type: "text", id: "set-new", maxlength: "30", placeholder: "New subject name", "aria-label": "New subject name" });
+      var addS = function () {
+        var n = ni.value.trim().slice(0, 30);
+        if (!n || state.subjects.length >= MAX_SUBJECTS) return;
+        var dup = state.subjects.some(function (s) { return s.name.toLowerCase() === n.toLowerCase(); });
+        if (dup) return;
+        var s = { id: uid("s"), name: n, color: pickColor(), topics: [] };
+        state.subjects.push(s);
+        openSet[s.id] = true;
+        changed(); renderSubjects(); refreshAll(); renderSettings();
+      };
+      ni.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); addS(); } });
+      box.appendChild(el("div", { class: "addrow", style: "margin-top:12px" }, [ni, el("button", { type: "button", class: "btn", text: "Add subject", onclick: addS })]));
+    }
+
+    var wipe = el("button", { type: "button", class: "btn warn", text: "Start over" });
+    armed(wipe, "Start over", "Tap again to erase", function () {
+      state = blank();
+      draft = { cls: "", subs: [] };
+      step = 1;
+      wizardTouched = false;
+      openSet = {};
+      markDate = todayKey;
+      changed();
+      route();
+      window.scrollTo(0, 0);
+    });
+    box.appendChild(el("div", { class: "danger" }, [
+      el("p", { class: "hint", text: "Erases your class, subjects, chapters and all progress, then restarts the setup." }),
+      wipe
+    ]));
+  }
+
+  /* ---------- controls ---------- */
+  function shiftDay(n) {
+    var k = key(addDays(parse(markDate), n));
+    if (k > todayKey) return;
+    markDate = k;
+    renderActivity(); renderToday();
+  }
+  $("prevday").addEventListener("click", function () { shiftDay(-1); });
+  $("nextday").addEventListener("click", function () { shiftDay(1); });
+  ["day", "week", "month", "all"].forEach(function (p) {
+    $("p-" + p).addEventListener("click", function () {
+      period = p;
+      ["day", "week", "month", "all"].forEach(function (q) { $("p-" + q).setAttribute("aria-pressed", q === p ? "true" : "false"); });
+      renderStats(); renderRange(); renderSplit();
+    });
+  });
+
+  /* ---------- sign in with Supabase (only when config.js and the library are both present) ---------- */
+  var cfg = window.STUDY_SUPABASE;
+  var sb = null;
+  var activeUid = null, activeEmail = "", recovering = false, booted = false, lastPull = 0;
+  var authMode = "signin", authEmail = "", googleOn = false, providersChecked = false;
+  if (cfg && typeof cfg.url === "string" && typeof cfg.key === "string" && /^https:\/\//.test(cfg.url) &&
+      window.supabase && typeof window.supabase.createClient === "function") {
+    try { sb = window.supabase.createClient(cfg.url, cfg.key); } catch (e) { sb = null; }
+  }
+  var redirectUrl = location.origin + location.pathname;
+
+  function friendly(err) {
+    var m = String((err && err.message) || "").toLowerCase();
+    if (m.indexOf("invalid login") >= 0) return "Wrong email or password.";
+    if (m.indexOf("not confirmed") >= 0) return "Confirm your email first. Check your inbox for the link.";
+    if (m.indexOf("already registered") >= 0) return "An account with this email already exists. Try signing in.";
+    if (m.indexOf("rate limit") >= 0 || m.indexOf("too many") >= 0) return "Too many attempts. Wait a few minutes and try again.";
+    if (m.indexOf("password") >= 0 && m.indexOf("character") >= 0) return "Use a password with at least 6 characters.";
+    if (m.indexOf("signups not allowed") >= 0) return "New sign ups are turned off for this app.";
+    return (err && err.message) ? err.message : "Something went wrong. Try again.";
+  }
+  function checkProviders() {
+    return fetch(cfg.url.replace(/\/$/, "") + "/auth/v1/settings", { headers: { apikey: cfg.key } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { googleOn = !!(j && j.external && j.external.google); })
+      .catch(function () { googleOn = false; });
+  }
+  function showAuthShell() { $("setup").hidden = true; $("app").hidden = true; $("auth").hidden = false; }
+  function showAuth() {
+    showAuthShell();
+    renderAuth();
+    setStatus("");
+    if (!providersChecked) {
+      providersChecked = true;
+      checkProviders().then(function () {
+        var pw = document.getElementById("au-pw");
+        if (googleOn && !$("auth").hidden && !recovering && pw && !pw.value) renderAuth();
+      });
+    }
+  }
+
+  function renderAuth() {
+    var box = $("auth");
+    box.textContent = "";
+    var card = el("div", { class: "glass card wiz" });
+    var signup = authMode === "signup";
+    card.appendChild(el("p", { class: "kicker", text: "Study Tracker" }));
+    card.appendChild(el("h1", { class: "wtitle", text: signup ? "Create your account" : "Welcome back" }));
+    card.appendChild(el("p", { class: "sub", text: "Sign in to save your subjects and progress to your account. They follow you to any device." }));
+
+    var msg = el("p", { class: "msg", role: "status" });
+    function say(t, ok) { msg.textContent = t || ""; msg.className = "msg" + (ok ? " ok" : ""); }
+
+    if (googleOn) {
+      card.appendChild(el("button", {
+        type: "button", class: "btn wide", text: "Continue with Google",
+        onclick: function () {
+          say("");
+          sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: redirectUrl } })
+            .then(function (r) { if (r && r.error) say(friendly(r.error)); })
+            .catch(function () { say("Couldn't reach the server. Check your connection and try again."); });
+        }
+      }));
+      card.appendChild(el("div", { class: "or", text: "or use email" }));
+    }
+
+    card.appendChild(el("div", { class: "seg", role: "group", "aria-label": "Sign in or create account", style: "margin-bottom:14px" }, [
+      el("button", { type: "button", class: "pill", text: "Sign in", "aria-pressed": signup ? "false" : "true", onclick: function () { authMode = "signin"; renderAuth(); } }),
+      el("button", { type: "button", class: "pill", text: "Create account", "aria-pressed": signup ? "true" : "false", onclick: function () { authMode = "signup"; renderAuth(); } })
+    ]));
+
+    var email = el("input", { class: "txt big", type: "email", id: "au-email", autocomplete: "email", placeholder: "Email", "aria-label": "Email", value: authEmail });
+    email.addEventListener("input", function () { authEmail = email.value; });
+    var pw = el("input", { class: "txt big", type: "password", id: "au-pw", autocomplete: signup ? "new-password" : "current-password", placeholder: "Password (at least 6 characters)", "aria-label": "Password" });
+    var submit = el("button", { type: "submit", class: "btn primary wide", text: signup ? "Create account" : "Sign in" });
+    var form = el("form", { novalidate: true, class: "stack" }, [email, pw, submit]);
+    card.appendChild(form);
+    card.appendChild(msg);
+
+    function validEmail() {
+      var e = authEmail.trim();
+      if (!/^\S+@\S+\.\S+$/.test(e)) { say("Enter a valid email address."); return ""; }
+      return e;
+    }
+    function offline() { say("Couldn't reach the server. Check your connection and try again."); }
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var e = validEmail();
+      if (!e) return;
+      if (pw.value.length < 6) { say("Use a password with at least 6 characters."); return; }
+      submit.disabled = true;
+      say("");
+      var call = signup
+        ? sb.auth.signUp({ email: e, password: pw.value, options: { emailRedirectTo: redirectUrl } })
+        : sb.auth.signInWithPassword({ email: e, password: pw.value });
+      call.then(function (r) {
+        submit.disabled = false;
+        if (r.error) { say(friendly(r.error)); return; }
+        if (signup && !(r.data && r.data.session)) say("Account created. Check your email and tap the confirmation link, then sign in.", true);
+      }).catch(function () { submit.disabled = false; offline(); });
+    });
+
+    var links = el("div", { class: "linkrow" });
+    links.appendChild(el("button", {
+      type: "button", class: "linkbtn", text: "Email me a sign-in link",
+      onclick: function () {
+        var e = validEmail();
+        if (!e) return;
+        say("");
+        sb.auth.signInWithOtp({ email: e, options: { emailRedirectTo: redirectUrl } })
+          .then(function (r) { if (r.error) say(friendly(r.error)); else say("Check your email for a sign-in link.", true); })
+          .catch(offline);
+      }
+    }));
+    if (!signup) {
+      links.appendChild(el("button", {
+        type: "button", class: "linkbtn", text: "Forgot password?",
+        onclick: function () {
+          var e = validEmail();
+          if (!e) return;
+          say("");
+          sb.auth.resetPasswordForEmail(e, { redirectTo: redirectUrl })
+            .then(function (r) { if (r.error) say(friendly(r.error)); else say("If that email has an account, a reset link is on its way.", true); })
+            .catch(offline);
+        }
+      }));
+    }
+    card.appendChild(links);
+    card.appendChild(el("div", { class: "or", text: "or" }));
+    card.appendChild(el("button", { type: "button", class: "btn wide", text: "Continue without an account", onclick: function () { lsSet(LS_GUEST, "1"); route(); setStatus(whereSaved()); } }));
+    card.appendChild(el("p", { class: "hint", style: "margin-top:10px;text-align:center", text: "Without an account your progress stays on this device only." }));
+    box.appendChild(card);
+  }
+
+  function renderRecovery() {
+    var box = $("auth");
+    box.textContent = "";
+    var card = el("div", { class: "glass card wiz" });
+    card.appendChild(el("p", { class: "kicker", text: "Study Tracker" }));
+    card.appendChild(el("h1", { class: "wtitle", text: "Set a new password" }));
+    card.appendChild(el("p", { class: "sub", text: "Choose a new password for your account." }));
+    var pw = el("input", { class: "txt big", type: "password", id: "au-new", autocomplete: "new-password", placeholder: "New password (at least 6 characters)", "aria-label": "New password" });
+    var msg = el("p", { class: "msg", role: "status" });
+    var save = el("button", { type: "submit", class: "btn primary wide", text: "Save password" });
+    var form = el("form", { novalidate: true, class: "stack" }, [pw, save]);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      if (pw.value.length < 6) { msg.textContent = "Use a password with at least 6 characters."; return; }
+      save.disabled = true;
+      sb.auth.updateUser({ password: pw.value }).then(function (r) {
+        save.disabled = false;
+        if (r.error) { msg.textContent = friendly(r.error); return; }
+        recovering = false;
+        sb.auth.getSession().then(function (g) { if (g.data && g.data.session) startSignedIn(g.data.session); else showAuth(); });
+      }).catch(function () { save.disabled = false; msg.textContent = "Couldn't reach the server. Check your connection and try again."; });
+    });
+    card.appendChild(form);
+    card.appendChild(msg);
+    box.appendChild(card);
+  }
+
+  async function startSignedIn(session) {
+    activeUid = session.user.id;
+    activeEmail = session.user.email || "";
+    lsSet(LS_SIGNED, "1");
+    lsSet(LS_GUEST, null);
+    var uid = activeUid;
+    remote = {
+      save: function (obj) {
+        return sb.from("study_state").upsert({ user_id: uid, data: obj }, { onConflict: "user_id" })
+          .then(function (r) { if (r && r.error) throw r.error; });
+      }
+    };
+    remoteKind = "supabase";
+    syncFailed = false;
+    $("auth").hidden = true;
+    setStatus("Loading your data…");
+    await pullOrPush();
+  }
+
+  async function pullOrPush() {
+    var uid = activeUid;
+    var r;
+    try { r = await sb.from("study_state").select("data").eq("user_id", uid).maybeSingle(); }
+    catch (e) { r = { error: e }; }
+    if (uid !== activeUid) return;
+    lastPull = Date.now();
+    if (r.error) { syncFailed = true; route(); setStatus(whereSaved()); return; }
+    var row = r.data && r.data.data;
+    var hasRow = !!(row && typeof row === "object" && row.v);
+    if (state.done && (lsGet(LS_PENDING) === "1" || !hasRow)) {
+      route();
+      dirty = true;
+      await flush();
+      return;
+    }
+    if (hasRow) { state = sanitize(JSON.parse(JSON.stringify(row))); lsSet(LS, JSON.stringify(state)); }
+    route();
+    setStatus(whereSaved());
+  }
+
+  async function refreshFromCloud() {
+    var uid = activeUid;
+    try {
+      var r = await sb.from("study_state").select("data").eq("user_id", uid).maybeSingle();
+      if (r.error || uid !== activeUid || dirty || saving) return;
+      var row = r.data && r.data.data;
+      if (!row || !row.v) return;
+      var s2 = sanitize(JSON.parse(JSON.stringify(row)));
+      if (JSON.stringify(s2) === JSON.stringify(state)) return;
+      if (!state.done && wizardTouched) return;
+      state = s2;
+      lsSet(LS, JSON.stringify(state));
+      route();
+    } catch (e) {}
+  }
+
+  function localSignOut() {
+    activeUid = null; activeEmail = ""; remote = null; remoteKind = ""; syncFailed = false;
+    lsSet(LS_SIGNED, null); lsSet(LS_PENDING, null); lsSet(LS, null); lsSet(LS_OLD, null);
+    state = blank();
+    draft = { cls: "", subs: [] };
+    step = 1;
+    wizardTouched = false;
+    openSet = {};
+    markDate = todayKey;
+    showAuth();
+  }
+  async function signOut() {
+    try { clearTimeout(timer); if (dirty) await flush(); } catch (e) {}
+    try { await sb.auth.signOut({ scope: "local" }); } catch (e) {}
+    localSignOut();
+  }
+
+  function handleAuth(event, session) {
+    booted = true;
+    if (event === "PASSWORD_RECOVERY") { recovering = true; showAuthShell(); renderRecovery(); return; }
+    if (event === "SIGNED_OUT") { if (activeUid) localSignOut(); return; }
+    var u = session && session.user;
+    if (u) { if (!recovering && u.id !== activeUid) startSignedIn(session); return; }
+    if (event === "INITIAL_SESSION" && !activeUid) {
+      if (lsGet(LS_GUEST)) { route(); setStatus(whereSaved()); } else showAuth();
+    }
+  }
+  function startWithSupabase() {
+    setStatus("Loading…");
+    sb.auth.onAuthStateChange(function (event, session) { setTimeout(function () { handleAuth(event, session); }, 0); });
+    setTimeout(function () { if (!booted) { booted = true; route(); setStatus(whereSaved()); } }, 8000);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState !== "visible" || !activeUid || dirty || saving) return;
+      if (Date.now() - lastPull < 15000) return;
+      lastPull = Date.now();
+      refreshFromCloud();
+    });
+  }
+
+  /* ---------- storage on a host that provides it (otherwise this device) ---------- */
+  function onRemote(snap) {
+    if (!snap.exists || dirty || saving) return;
+    if (!state.done && wizardTouched) return;
+    var s2 = sanitize(JSON.parse(JSON.stringify(snap.data())));
+    if (JSON.stringify(s2) === JSON.stringify(state)) return;
+    state = s2;
+    route();
+  }
+  async function startHostStorage() {
+    try {
+      if (!window.claude || !window.claude.use) { setStatus(whereSaved()); return; }
+      var user = await window.claude.use("user");
+      var db = await window.claude.use("db");
+      var id = user ? await user.id() : null;
+      if (!db || !id) { setStatus(whereSaved()); return; }
+      var ref = db.doc("data/users/" + id + "/studylog");
+      remote = { save: function (obj) { return ref.set(obj); } };
+      remoteKind = "host";
+      loadTimer = setTimeout(function () {
+        if (!dirty) setStatus("Can't reach your saved data yet. Showing what is on this device.");
+      }, 10000);
+      ref.onSnapshot(function (snap) {
+        if (!snap.metadata.fromCache) {
+          clearTimeout(loadTimer);
+          if (!dirty) setStatus(whereSaved());
+        }
+        onRemote(snap);
+      }, function () {
+        clearTimeout(loadTimer);
+        remote = null;
+        if (!dirty) setStatus(whereSaved());
+      });
+    } catch (e) {
+      remote = null;
+      setStatus(whereSaved());
+    }
+  }
+
+  /* ---------- start ---------- */
+  if (sb) startWithSupabase();
+  else { route(); startHostStorage(); }
+})();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+}
+</script>
+</body>
+</html>
